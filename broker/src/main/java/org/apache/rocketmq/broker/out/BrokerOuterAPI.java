@@ -146,6 +146,7 @@ public class BrokerOuterAPI {
                     @Override
                     public void run() {
                         try {
+                            // 在此处才向NameServer发起注册
                             RegisterBrokerResult result = registerBroker(namesrvAddr, oneway, timeoutMills, requestHeader, body);
                             if (result != null) {
                                 registerBrokerResultList.add(result);

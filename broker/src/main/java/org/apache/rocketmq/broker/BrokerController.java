@@ -886,7 +886,7 @@ public class BrokerController {
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
             this.registerBrokerAll(true, false, true);
         }
-
+        // 定时发送心跳包到NameServer，实际是调用BrokerOuterAPI的registerBrokerAll()发起注册
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
