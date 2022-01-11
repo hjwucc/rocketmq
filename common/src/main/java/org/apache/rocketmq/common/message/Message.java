@@ -42,15 +42,15 @@ public class Message implements Serializable {
         this.topic = topic;
         this.flag = flag;
         this.body = body;
-
+        // 消息tag,可用于过滤消息
         if (tags != null && tags.length() > 0) {
             this.setTags(tags);
         }
-
+        // 消息索引键，用于快速检索消息
         if (keys != null && keys.length() > 0) {
             this.setKeys(keys);
         }
-
+        // 发送消息时是否等消息存储完成后再返回
         this.setWaitStoreMsgOK(waitStoreMsgOK);
     }
 

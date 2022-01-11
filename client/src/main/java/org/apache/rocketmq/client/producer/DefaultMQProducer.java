@@ -268,7 +268,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
             ((AsyncTraceDispatcher) traceDispatcher).getTraceProducer().setUseTLS(useTLS);
         }
     }
-    
+
     /**
      * Start this producer instance. </p>
      *
@@ -331,8 +331,10 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     @Override
     public SendResult send(
         Message msg) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        // 检查message、topic
         Validators.checkMessage(msg, this);
         msg.setTopic(withNamespace(msg.getTopic()));
+        // 默认发送同步消息
         return this.defaultMQProducerImpl.send(msg);
     }
 
