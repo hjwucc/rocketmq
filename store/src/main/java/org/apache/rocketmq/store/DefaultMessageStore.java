@@ -71,27 +71,27 @@ public class DefaultMessageStore implements MessageStore {
     private final MessageStoreConfig messageStoreConfig;
     // CommitLog
     private final CommitLog commitLog;
-
+    // 按消息主题分组
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-
+    // 文件刷盘线程
     private final FlushConsumeQueueService flushConsumeQueueService;
-
+    // 清除CommitLog文件服务
     private final CleanCommitLogService cleanCommitLogService;
-
+    // 清除ConsumeQueue文件服务
     private final CleanConsumeQueueService cleanConsumeQueueService;
-
+    // Index文件实现类
     private final IndexService indexService;
-
+    // MappedFile（映射文件）分配服务
     private final AllocateMappedFileService allocateMappedFileService;
-
+    // CommitLog消息分发，根据CommitLog文件构建ConsumeQueue、Index文件
     private final ReputMessageService reputMessageService;
-
+    // 存储高可用机制
     private final HAService haService;
 
     private final ScheduleMessageService scheduleMessageService;
 
     private final StoreStatsService storeStatsService;
-
+    // 消息堆内存缓存
     private final TransientStorePool transientStorePool;
 
     private final RunningFlags runningFlags = new RunningFlags();
@@ -100,15 +100,17 @@ public class DefaultMessageStore implements MessageStore {
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
     private final BrokerStatsManager brokerStatsManager;
+    // 在消息拉取长轮询模式下的消息达到监听器
     private final MessageArrivingListener messageArrivingListener;
+    // Broker配置属性
     private final BrokerConfig brokerConfig;
 
     private volatile boolean shutdown = true;
-
+    // 文件刷盘检测点
     private StoreCheckpoint storeCheckpoint;
 
     private AtomicLong printTimes = new AtomicLong(0);
-
+    // CommitLog文件转发请求
     private final LinkedList<CommitLogDispatcher> dispatcherList;
 
     private RandomAccessFile lockFile;
@@ -421,17 +423,19 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
+        // 检查存储文件的状态（如是否宕机、磁盘文件内容是否充足、文件缓存是否繁忙等）
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return CompletableFuture.completedFuture(new PutMessageResult(checkStoreStatus, null));
         }
-
+        // 检查消息文件的状态（消息主题超过127字符、消息属性长度超过32767个字符则拒绝消息写入）
         PutMessageStatus msgCheckStatus = this.checkMessage(msg);
         if (msgCheckStatus == PutMessageStatus.MESSAGE_ILLEGAL) {
             return CompletableFuture.completedFuture(new PutMessageResult(msgCheckStatus, null));
         }
 
         long beginTime = this.getSystemClock().now();
+        // 将消息写入到CommitLog文件中
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
 
         putResultFuture.thenAccept((result) -> {

@@ -35,8 +35,9 @@ public class AppendMessageResult {
     private long storeTimestamp;
     // Consume queue's offset(step by one)
     private long logicsOffset;
+    // 消息写入页缓存的响应时间
     private long pagecacheRT = 0;
-
+    // 批量发送消息时的消息条数
     private int msgNum = 1;
 
     public AppendMessageResult(AppendMessageStatus status) {
