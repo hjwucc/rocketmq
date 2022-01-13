@@ -66,7 +66,7 @@ public class MappedFile extends ReferenceResource {
      */
     // 堆外内存ByteBuffer，transientStorePoolEnable为true时不为空
     protected ByteBuffer writeBuffer = null;
-    // 堆外内存池，transientStorePoolEnable为true时启用
+    // 堆外内存池（会被锁定在内存中，避免被进程将内存交换到磁盘中），transientStorePoolEnable为true时启用
     protected TransientStorePool transientStorePool = null;
     // 文件名称
     private String fileName;
@@ -299,6 +299,7 @@ public class MappedFile extends ReferenceResource {
 
                 try {
                     //We only append data to fileChannel or mappedByteBuffer, never both.
+                    // force()方法即可将数据刷到磁盘中
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);
                     } else {
@@ -342,6 +343,7 @@ public class MappedFile extends ReferenceResource {
         return this.committedPosition.get();
     }
 
+    // 将writeBuffer中未提交的数据提交到文件通道FileChannel中
     protected void commit0() {
         int writePos = this.wrotePosition.get();
         int lastCommittedPosition = this.committedPosition.get();
@@ -384,6 +386,7 @@ public class MappedFile extends ReferenceResource {
         }
 
         if (commitLeastPages > 0) {
+            // 计算得到脏页的数量是否大于等于要提交的页的数量
             return ((write / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE)) >= commitLeastPages;
         }
 
@@ -464,6 +467,7 @@ public class MappedFile extends ReferenceResource {
         this.shutdown(intervalForcibly);
 
         if (this.isCleanupOver()) {
+            // 如果清理完成，则就关闭通道，销毁物理文件
             try {
                 this.fileChannel.close();
                 log.info("close file channel " + this.fileName + " OK");

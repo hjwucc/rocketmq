@@ -1498,7 +1498,7 @@ public class DefaultMessageStore implements MessageStore {
             dispatcher.dispatch(req);
         }
     }
-
+    // 该方法用于将消息从CommitLog转发存储到ConsumeQueue中
     public void putMessagePositionInfo(DispatchRequest dispatchRequest) {
         ConsumeQueue cq = this.findConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
         cq.putMessagePositionInfoWrapper(dispatchRequest);
@@ -1952,12 +1952,12 @@ public class DefaultMessageStore implements MessageStore {
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
-
+                // isDuplicationEnable指消息是否允许重复转发
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
-
+                // 返回reputFromOffset偏移量开始的全部有效数据，然后循环读取每一条消息
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
@@ -1970,6 +1970,8 @@ public class DefaultMessageStore implements MessageStore {
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
+                                    // 开始转发消息：最终分别调用CommitLogDispatcherBuildConsumeQueue（构建消息消费队列）、
+                                    // CommitLogDispatcherBuildIndex（构建索引文件）
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
@@ -2024,7 +2026,7 @@ public class DefaultMessageStore implements MessageStore {
         @Override
         public void run() {
             DefaultMessageStore.log.info(this.getServiceName() + " service started");
-
+            // 每间隔1毫秒ReputMessageService线程将消息转发到ConsumeQueue和IndexFile
             while (!this.isStopped()) {
                 try {
                     Thread.sleep(1);

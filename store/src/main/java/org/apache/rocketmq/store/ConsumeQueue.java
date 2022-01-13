@@ -152,10 +152,12 @@ public class ConsumeQueue {
         }
     }
 
+    // 找到第一个文件更新时间大于该时间戳的文件
     public long getOffsetInQueueByTime(final long timestamp) {
         MappedFile mappedFile = this.mappedFileQueue.getMappedFileByTime(timestamp);
         if (mappedFile != null) {
             long offset = 0;
+            // 消息队列的最小偏移量是否 > 文件的初始偏移量
             int low = minLogicOffset > mappedFile.getFileFromOffset() ? (int) (minLogicOffset - mappedFile.getFileFromOffset()) : 0;
             int high = 0;
             int midOffset = -1, targetOffset = -1, leftOffset = -1, rightOffset = -1;
@@ -166,6 +168,7 @@ public class ConsumeQueue {
                 ByteBuffer byteBuffer = sbr.getByteBuffer();
                 high = byteBuffer.limit() - CQ_STORE_UNIT_SIZE;
                 try {
+                    // 使用二分查找
                     while (high >= low) {
                         midOffset = (low + high) / (2 * CQ_STORE_UNIT_SIZE) * CQ_STORE_UNIT_SIZE;
                         byteBuffer.position(midOffset);
@@ -176,12 +179,13 @@ public class ConsumeQueue {
                             leftOffset = midOffset;
                             continue;
                         }
-
+                        // 获取消息的时间戳
                         long storeTime =
                             this.defaultMessageStore.getCommitLog().pickupStoreTimestamp(phyOffset, size);
                         if (storeTime < 0) {
                             return 0;
                         } else if (storeTime == timestamp) {
+                            // 与要查找的时间戳相等，说明找到了匹配消息
                             targetOffset = midOffset;
                             break;
                         } else if (storeTime > timestamp) {
@@ -196,14 +200,14 @@ public class ConsumeQueue {
                     }
 
                     if (targetOffset != -1) {
-
+                        // 找到了存储时间戳等于待查找时间戳的消息
                         offset = targetOffset;
                     } else {
                         if (leftIndexValue == -1) {
-
+                        // 表明返回的时间戳大于待查找消息的时间戳，并且最接近
                             offset = rightOffset;
                         } else if (rightIndexValue == -1) {
-
+                        // 表明返回的时间戳小于待查找消息的时间戳，并且最接近
                             offset = leftOffset;
                         } else {
                             offset =

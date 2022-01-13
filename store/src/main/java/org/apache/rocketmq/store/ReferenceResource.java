@@ -44,8 +44,10 @@ public abstract class ReferenceResource {
         if (this.available) {
             this.available = false;
             this.firstShutdownTimestamp = System.currentTimeMillis();
+            // 引用次数小于1时才会有释放资源
             this.release();
         } else if (this.getRefCount() > 0) {
+            // 如果引用次数 > 0,且距离firstShutdownTimestamp >= 最大拒绝存活期，则每次引用操作，引用数-1000
             if ((System.currentTimeMillis() - this.firstShutdownTimestamp) >= intervalForcibly) {
                 this.refCount.set(-1000 - this.getRefCount());
                 this.release();
@@ -59,7 +61,7 @@ public abstract class ReferenceResource {
             return;
 
         synchronized (this) {
-
+            // 引用数小于1即可开始清理
             this.cleanupOver = this.cleanup(value);
         }
     }
@@ -70,6 +72,7 @@ public abstract class ReferenceResource {
 
     public abstract boolean cleanup(final long currentRef);
 
+    // 判断是否清理完成
     public boolean isCleanupOver() {
         return this.refCount.get() <= 0 && this.cleanupOver;
     }

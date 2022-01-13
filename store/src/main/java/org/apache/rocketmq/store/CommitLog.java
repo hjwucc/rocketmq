@@ -912,6 +912,7 @@ public class CommitLog {
         return -1;
     }
 
+    // 寻找当前CommitLog文件的最小偏移量
     public long getMinOffset() {
         MappedFile mappedFile = this.mappedFileQueue.getFirstMappedFile();
         if (mappedFile != null) {
@@ -925,6 +926,7 @@ public class CommitLog {
         return -1;
     }
 
+    // 根据偏移量和文件大小查找消息
     public SelectMappedBufferResult getMessage(final long offset, final int size) {
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, offset == 0);
