@@ -64,7 +64,7 @@ public class IndexService {
                 try {
                     IndexFile f = new IndexFile(file.getPath(), this.hashSlotNum, this.indexNum, 0, 0);
                     f.load();
-
+                    // 如果上次异常退出，而且Index文件刷盘时间小于该文件最大的消息时间戳，则该文件立即销毁
                     if (!lastExitOK) {
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
@@ -198,6 +198,7 @@ public class IndexService {
         return topic + "#" + key;
     }
 
+    // 构建Index文件
     public void buildIndex(DispatchRequest req) {
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
@@ -205,6 +206,7 @@ public class IndexService {
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
+            // 如果该消息的物理偏移量 < Index文件最大的物理偏移量，说明是重复数据，忽略本次索引构建
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -218,7 +220,7 @@ public class IndexService {
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     return;
             }
-
+            // 消息的唯一键不为空，则添加到Index文件中
             if (req.getUniqKey() != null) {
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
@@ -226,7 +228,7 @@ public class IndexService {
                     return;
                 }
             }
-
+            // 如果有多个KEY，则可以为该消息构建多个索引
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {

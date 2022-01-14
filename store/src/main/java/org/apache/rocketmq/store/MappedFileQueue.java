@@ -107,13 +107,16 @@ public class MappedFileQueue {
         List<MappedFile> willRemoveFiles = new ArrayList<MappedFile>();
 
         for (MappedFile file : this.mappedFiles) {
+            // 文件尾部偏移量=文件初始偏移量+单个文件大小
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
+            // 尾部偏移量>offset，则进一步判断offset是否大于文件初始偏移量
             if (fileTailOffset > offset) {
                 if (offset >= file.getFileFromOffset()) {
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
                 } else {
+                    // offset比初始偏移量小，说明当前CommitLog文件是无效的，会进行销毁（释放对应内存资源，删除物理文件）
                     file.destroy(1000);
                     willRemoveFiles.add(file);
                 }
@@ -161,6 +164,7 @@ public class MappedFileQueue {
         files.sort(Comparator.comparing(File::getName));
 
         for (File file : files) {
+            // 如果文件大小和配置的文件大小不一致，就忽略该目录下的所有文件
             if (file.length() != this.mappedFileSize) {
                 log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, ignore it");

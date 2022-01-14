@@ -117,6 +117,7 @@ public class CommitLog {
         return fullStorePaths;
     }
 
+    // 加载CommitLog文件（${ROCKET_HOME}/store/commitlog目录下），并按照文件名进行排序
     public boolean load() {
         boolean result = this.mappedFileQueue.load();
         log.info("load commit log " + (result ? "OK" : "Failed"));
@@ -195,22 +196,28 @@ public class CommitLog {
             // Began to recover from the last third file
             int index = mappedFiles.size() - 3;
             if (index < 0)
+                // 不足三个文件，则从第一个文件开始恢复
                 index = 0;
 
             MappedFile mappedFile = mappedFiles.get(index);
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+            // processOffset为CommitLog文件已确认的文件偏移量 = mappedFile.getFileFromOffset() + mappedFileOffset
             long processOffset = mappedFile.getFileFromOffset();
+            // mappedFileOffset为CommitLog文件已校验通过的物理偏移量
             long mappedFileOffset = 0;
             while (true) {
+                // 每次取出一个消息
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover);
                 int size = dispatchRequest.getMsgSize();
                 // Normal data
+                // 如果查找消息为true且消息长度>0,则mappedFileOffset指针向前移动
                 if (dispatchRequest.isSuccess() && size > 0) {
                     mappedFileOffset += size;
                 }
                 // Come the end of the file, switch to the next file Since the
                 // return 0 representatives met last hole,
                 // this can not be included in truncate offset
+                // 如果查找消息为true且消息长度=0，表明已到当前文件末尾
                 else if (dispatchRequest.isSuccess() && size == 0) {
                     index++;
                     if (index >= mappedFiles.size()) {
@@ -218,6 +225,7 @@ public class CommitLog {
                         log.info("recover last 3 physics file over, last mapped file " + mappedFile.getFileName());
                         break;
                     } else {
+                        // 继续查找下一个文件
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
                         processOffset = mappedFile.getFileFromOffset();
@@ -226,15 +234,17 @@ public class CommitLog {
                     }
                 }
                 // Intermediate file read error
+                // 消息查找结果为false，表明该文件未填满消息，则跳出循环，结束遍历文件
                 else if (!dispatchRequest.isSuccess()) {
                     log.info("recover physics file end, " + mappedFile.getFileName());
                     break;
                 }
             }
-
+            // 更新mappedFileQueue
             processOffset += mappedFileOffset;
             this.mappedFileQueue.setFlushedWhere(processOffset);
             this.mappedFileQueue.setCommittedWhere(processOffset);
+            // 删除processOffset之后的所有文件（没有得到确认的）
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
 
             // Clear ConsumeQueue redundant data
@@ -452,10 +462,13 @@ public class CommitLog {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             // Looking beginning to recover from which file
+            // 从最后一个文件开始恢复
             int index = mappedFiles.size() - 1;
             MappedFile mappedFile = null;
+            // 找到第一个消息存储正确的文件，并在后续将文件中的消息进行转发
             for (; index >= 0; index--) {
                 mappedFile = mappedFiles.get(index);
+                // 判断文件是否正确
                 if (this.isMappedFileMatchedRecover(mappedFile)) {
                     log.info("recover from this mapped file " + mappedFile.getFileName());
                     break;
@@ -470,6 +483,7 @@ public class CommitLog {
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
             long processOffset = mappedFile.getFileFromOffset();
             long mappedFileOffset = 0;
+            // 查找文件中的每条正确的消息，并重新进行消息转发到ConsumeQueue文件和Index文件
             while (true) {
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover);
                 int size = dispatchRequest.getMsgSize();
@@ -524,6 +538,7 @@ public class CommitLog {
         }
         // Commitlog case files are deleted
         else {
+            // 如果
             log.warn("The commitlog files are deleted, and delete the consume queue files");
             this.mappedFileQueue.setFlushedWhere(0);
             this.mappedFileQueue.setCommittedWhere(0);
@@ -533,7 +548,7 @@ public class CommitLog {
 
     private boolean isMappedFileMatchedRecover(final MappedFile mappedFile) {
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
-
+        // 判断文件的魔数
         int magicCode = byteBuffer.getInt(MessageDecoder.MESSAGE_MAGIC_CODE_POSTION);
         if (magicCode != MESSAGE_MAGIC_CODE) {
             return false;
@@ -542,11 +557,12 @@ public class CommitLog {
         int sysFlag = byteBuffer.getInt(MessageDecoder.SYSFLAG_POSITION);
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int msgStoreTimePos = 4 + 4 + 4 + 4 + 4 + 8 + 8 + 4 + 8 + bornhostLength;
+        // 如果文件中第一条消息的存储时间 = 0，说明当前文件未存储任何消息
         long storeTimestamp = byteBuffer.getLong(msgStoreTimePos);
         if (0 == storeTimestamp) {
             return false;
         }
-
+        // 如果messageIndexEnable和messageIndexSafe都为true，则将Index文件的刷盘时间也参与计算
         if (this.defaultMessageStore.getMessageStoreConfig().isMessageIndexEnable()
             && this.defaultMessageStore.getMessageStoreConfig().isMessageIndexSafe()) {
             if (storeTimestamp <= this.defaultMessageStore.getStoreCheckpoint().getMinTimestampIndex()) {
@@ -556,6 +572,9 @@ public class CommitLog {
                 return true;
             }
         } else {
+            // 文件第一条消息存储时间 < 文件的刷盘时间（getMinTimestamp()方法获取的是CommitLog与ConsumeQueue这两个文件
+            // 刷盘点中的较小值），
+            // 说明该文件中的部分消息是可靠的，可以从该文件进行恢复
             if (storeTimestamp <= this.defaultMessageStore.getStoreCheckpoint().getMinTimestamp()) {
                 log.info("find check timestamp, {} {}",
                     storeTimestamp,

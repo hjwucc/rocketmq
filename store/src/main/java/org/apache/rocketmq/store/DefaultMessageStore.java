@@ -182,12 +182,15 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     /**
-     * @throws IOException
+     * 存储文件加载流程，其中会进行文件的恢复，以保证消息不丢失（不保证消息不重复，交给业务方控制）
+     * 查看《RocketMQ技术内幕》第二版:115-121页
      */
     public boolean load() {
         boolean result = true;
 
         try {
+            // 判断上一次退出是否正常（即判断是否存在abort文件,该文件是Broker启动时创建，正常退出时通过注册JVM钩子函数删除
+            //  abort文件，所以如果存在abort文件，则说明上一次退出异常）
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
 
@@ -198,15 +201,16 @@ public class DefaultMessageStore implements MessageStore {
             result = result && this.loadConsumeQueue();
 
             if (result) {
+                // 加载Checkpoint文件中记录的CommitLog文件、ConsumeQueue文件、Index文件的刷盘点（最后一次保存到磁盘中的时间戳）
                 this.storeCheckpoint =
                     new StoreCheckpoint(StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
-
+                // 加载Index文件，如果上次异常退出，而且Index文件刷盘时间小于该文件最大的消息时间戳，则该文件立即销毁
                 this.indexService.load(lastExitOK);
-
+                // 根据Broker上次是否异常退出，执行不同的回复策略
                 this.recover(lastExitOK);
 
                 log.info("load over, and the max phy offset = {}", this.getMaxPhyOffset());
-
+                // 加载延迟队列
                 if (null != scheduleMessageService) {
                     result =  this.scheduleMessageService.load();
                 }
@@ -1369,12 +1373,13 @@ public class DefaultMessageStore implements MessageStore {
         File dirLogic = new File(StorePathConfigHelper.getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()));
         File[] fileTopicList = dirLogic.listFiles();
         if (fileTopicList != null) {
-
+            // 遍历消费队列根目录
             for (File fileTopic : fileTopicList) {
                 String topic = fileTopic.getName();
 
                 File[] fileQueueIdList = fileTopic.listFiles();
                 if (fileQueueIdList != null) {
+                    // 遍历每个主题下的消费队列文件
                     for (File fileQueueId : fileQueueIdList) {
                         int queueId;
                         try {
@@ -1406,11 +1411,13 @@ public class DefaultMessageStore implements MessageStore {
         long maxPhyOffsetOfConsumeQueue = this.recoverConsumeQueue();
 
         if (lastExitOK) {
+            // Broker正常停止后的文件恢复
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
         } else {
+            // Broker异常停止后的文件恢复
             this.commitLog.recoverAbnormally(maxPhyOffsetOfConsumeQueue);
         }
-
+        // todo:这个方法看不明白，对应《RocketMQ技术内幕》第二版117页
         this.recoverTopicQueueTable();
     }
 
