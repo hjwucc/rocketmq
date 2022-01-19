@@ -439,9 +439,9 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         long beginTime = this.getSystemClock().now();
-        // 将消息写入到CommitLog文件中
+        // 将消息异步写入到CommitLog文件中
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
-
+        // 处理上一个异步任务的结果
         putResultFuture.thenAccept((result) -> {
             long elapsedTime = this.getSystemClock().now() - beginTime;
             if (elapsedTime > 500) {
@@ -1295,7 +1295,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void addScheduleTask() {
-
+        // 默认每隔10s检查是否需要清除过期文件
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1608,6 +1608,7 @@ public class DefaultMessageStore implements MessageStore {
 
         public void run() {
             try {
+                // CommitLog过期文件的删除
                 this.deleteExpiredFiles();
 
                 this.redeleteHangedFile();
@@ -1618,12 +1619,17 @@ public class DefaultMessageStore implements MessageStore {
 
         private void deleteExpiredFiles() {
             int deleteCount = 0;
+            // 文件保留时间，如果超过了该时间，即过期，可被删除
             long fileReservedTime = DefaultMessageStore.this.getMessageStoreConfig().getFileReservedTime();
+            // 删除物理文件的间隔时间
             int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
+            // 第一次拒绝删除之后能保留文件的最大时间（超过该时间，文件引用次数设置为负数，文件将被强制删除）
             int destroyMapedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
-
+            // 指定删除文件的时间点（默认凌晨4点）
             boolean timeup = this.isTimeToDelete();
+            // 检查磁盘空间是否充足，如果磁盘空间不充足，则返回true
             boolean spacefull = this.isSpaceToDelete();
+            // 预留手工触发机制，可以通过调用excuteDeleteFilesManualy方法触发删除过期文件操作
             boolean manualDelete = this.manualDeleteFileSeveralTimes > 0;
 
             if (timeup || spacefull || manualDelete) {
@@ -1641,7 +1647,7 @@ public class DefaultMessageStore implements MessageStore {
                     cleanAtOnce);
 
                 fileReservedTime *= 60 * 60 * 1000;
-
+                // 执行删除操作
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMapedFileIntervalForcibly, cleanAtOnce);
                 if (deleteCount > 0) {
@@ -1678,8 +1684,10 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private boolean isSpaceToDelete() {
+            // diskMaxUsedSpaceRatio：表示CommitLog文件、ConsumeQueue文件所在磁盘空间的最大使用量
+            // 默认75，范围为10-95，如果超过该值，需要立即清除过期文件
             double ratio = DefaultMessageStore.this.getMessageStoreConfig().getDiskMaxUsedSpaceRatio() / 100.0;
-
+            // 是否需要立即执行清除过期文件的操作
             cleanImmediately = false;
 
             {
@@ -1689,6 +1697,7 @@ public class DefaultMessageStore implements MessageStore {
                 double minPhysicRatio = 100;
                 String minStorePath = null;
                 for (String storePathPhysic : storePaths) {
+                    // physicRatio:获取CommitLog文件所在磁盘分区的磁盘使用率
                     double physicRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathPhysic);
                     if (minPhysicRatio > physicRatio) {
                         minPhysicRatio =  physicRatio;
@@ -1699,6 +1708,7 @@ public class DefaultMessageStore implements MessageStore {
                     }
                 }
                 DefaultMessageStore.this.commitLog.setFullStorePaths(fullStorePath);
+                // diskSpaceWarningLevelRatio：默认0.9，如果磁盘使用率超过该值则标记对应的磁盘为不可写，会拒绝写入新消息
                 if (minPhysicRatio > diskSpaceWarningLevelRatio) {
                     boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
                     if (diskok) {
@@ -1707,16 +1717,18 @@ public class DefaultMessageStore implements MessageStore {
                     }
 
                     cleanImmediately = true;
+                    // diskSpaceCleanForciblyRatio：默认0.85，如果磁盘使用率超过该值，建议立即清除过期文件，但不会拒绝写入
                 } else if (minPhysicRatio > diskSpaceCleanForciblyRatio) {
                     cleanImmediately = true;
                 } else {
+                    // 没有超过，则将磁盘标记为可写入
                     boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskOK();
                     if (!diskok) {
                         DefaultMessageStore.log.info("physic disk space OK " + minPhysicRatio +
                                 ", so mark disk ok, storePathPhysic=" + minStorePath);
                     }
                 }
-
+                // 磁盘使用量 < 0 或是 > 文件占用比率，则说明当前磁盘不足
                 if (minPhysicRatio < 0 || minPhysicRatio > ratio) {
                     DefaultMessageStore.log.info("physic disk maybe full soon, so reclaim space, "
                             + minPhysicRatio + ", storePathPhysic=" + minStorePath);

@@ -261,7 +261,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         });
     }
 
-
+    // Broker端异步处理发送的消息
     private CompletableFuture<RemotingCommand> asyncSendMessage(ChannelHandlerContext ctx, RemotingCommand request,
                                                                 SendMessageContext mqtraceContext,
                                                                 SendMessageRequestHeader requestHeader) {
@@ -324,6 +324,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         } else {
             putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
         }
+        // 对返回的结果进行处理
         return handlePutMessageResultFuture(putMessageResult, response, request, msgInner, responseHeader, mqtraceContext, ctx, queueIdInt);
     }
 
@@ -336,6 +337,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                                                                             ChannelHandlerContext ctx,
                                                                             int queueIdInt) {
         return putMessageResult.thenApply((r) ->
+                // 当putMessageResult这个CompletableFuture调用complete方法执行完毕后，再串行执行handlePutMessageResult方法
             handlePutMessageResult(r, response, request, msgInner, responseHeader, sendMessageContext, ctx, queueIdInt)
         );
     }

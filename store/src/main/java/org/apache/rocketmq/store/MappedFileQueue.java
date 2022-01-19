@@ -367,7 +367,9 @@ public class MappedFileQueue {
         if (null != mfs) {
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 文件最大存活时间=文件最后的更新时间+文件过期时间（过期时间默认72小时）
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
+                // 如果当前时间 > 文件最大存活时间 或 需要立即清除，则执行删除文件操作
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);

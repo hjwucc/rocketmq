@@ -297,7 +297,7 @@ public class HAService {
                     if (!transferOK) {
                         log.warn("transfer messsage to slave timeout, " + req.getNextOffset());
                     }
-
+                    // 复制到从节点成功或失败都会调用complete方法，然后下一个异步任务就可以处理结果了
                     req.wakeupCustomer(transferOK ? PutMessageStatus.PUT_OK : PutMessageStatus.FLUSH_SLAVE_TIMEOUT);
                 }
 

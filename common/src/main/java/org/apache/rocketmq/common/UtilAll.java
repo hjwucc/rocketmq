@@ -216,7 +216,7 @@ public class UtilAll {
                 return -1;
             }
 
-
+            // 获取磁盘总量
             long totalSpace = file.getTotalSpace();
 
             if (totalSpace > 0) {

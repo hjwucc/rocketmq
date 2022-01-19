@@ -91,11 +91,13 @@ public class CommitLog {
         this.defaultMessageStore = defaultMessageStore;
         // CommitLog初始化时根据刷盘类型设置不同的线程类
         if (FlushDiskType.SYNC_FLUSH == defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
+            // 同步刷新线程
             this.flushCommitLogService = new GroupCommitService();
         } else {
+            // 异步刷新线程
             this.flushCommitLogService = new FlushRealTimeService();
         }
-        // 提交mappedFileQueue中的数据到FileChannel
+        // 提交线程（提交mappedFileQueue中的数据到FileChannel）
         this.commitLogService = new CommitRealTimeService();
 
         this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
@@ -730,8 +732,9 @@ public class CommitLog {
         // Statistics
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).add(1);
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).add(result.getWroteBytes());
-
+        // 刷盘操作
         CompletableFuture<PutMessageStatus> flushResultFuture = submitFlushRequest(result, msg);
+        // 复制操作
         CompletableFuture<PutMessageStatus> replicaResultFuture = submitReplicaRequest(result, msg);
         // 并行执行flush和replica两个任务并合并执行结果
         return flushResultFuture.thenCombine(replicaResultFuture, (flushStatus, replicaStatus) -> {
@@ -1025,7 +1028,7 @@ public class CommitLog {
     abstract class FlushCommitLogService extends ServiceThread {
         protected static final int RETRY_TIMES_OVER = 10;
     }
-
+    // 提交数据到FileChannel的线程
     class CommitRealTimeService extends FlushCommitLogService {
 
         private long lastCommitTimestamp = 0;
@@ -1040,15 +1043,17 @@ public class CommitLog {
             CommitLog.log.info(this.getServiceName() + " service started");
             while (!this.isStopped()) {
                 int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitIntervalCommitLog();
-
+                // 提交最小页数，如果待提交数据不足，小于该值，将忽略本次提交任务，默认4页
                 int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
-
+                // 提交任务间隔时间，默认200ms
                 int commitDataThoroughInterval =
                     CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
 
                 long begin = System.currentTimeMillis();
+                // 如果距离上次提交时间 >= 间隔时间，则忽略commitDataLeastPages参数
                 if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
                     this.lastCommitTimestamp = begin;
+                    // 即待提交的数据 < 指定的页数，也执行提交操作
                     commitDataLeastPages = 0;
                 }
 
@@ -1064,7 +1069,7 @@ public class CommitLog {
                     if (end - begin > 500) {
                         log.info("Commit data to file costs {} ms", end - begin);
                     }
-                    // 当前线程默认挂起200毫秒
+                    // 当前线程默认挂起200毫秒（每隔200ms提交一次数据）
                     this.waitForRunning(interval);
                 } catch (Throwable e) {
                     CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
@@ -1073,6 +1078,7 @@ public class CommitLog {
 
             boolean result = false;
             for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
+                // 执行提交操作
                 result = CommitLog.this.mappedFileQueue.commit(0);
                 CommitLog.log.info(this.getServiceName() + " service shutdown, retry " + (i + 1) + " times " + (result ? "OK" : "Not OK"));
             }
@@ -1080,6 +1086,7 @@ public class CommitLog {
         }
     }
 
+    // 该线程每隔500ms将FileChannel中新增的内容刷到磁盘中
     class FlushRealTimeService extends FlushCommitLogService {
         private long lastFlushTimestamp = 0;
         private long printTimes = 0;
@@ -1088,11 +1095,13 @@ public class CommitLog {
             CommitLog.log.info(this.getServiceName() + " service started");
 
             while (!this.isStopped()) {
+                // 默认为false，表示使用await方法等待；true:表示使用Thread.sleep方法等待
                 boolean flushCommitLogTimed = CommitLog.this.defaultMessageStore.getMessageStoreConfig().isFlushCommitLogTimed();
-
+                // 该线程运行间隔时间，默认500ms
                 int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushIntervalCommitLog();
+                // 刷盘至少包含的页数，少于该页数则忽略本次刷盘任务，默认4页
                 int flushPhysicQueueLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogLeastPages();
-
+                // 两次真实刷盘任务的最大间隔时间，默认10s
                 int flushPhysicQueueThoroughInterval =
                     CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogThoroughInterval();
 
@@ -1100,8 +1109,10 @@ public class CommitLog {
 
                 // Print flush progress
                 long currentTimeMillis = System.currentTimeMillis();
+                // 距离上次提交数据的间隔时间 >= 两次真实刷盘任务的最大间隔时间,则忽略flushPhysicQueueLeastPages参数
                 if (currentTimeMillis >= (this.lastFlushTimestamp + flushPhysicQueueThoroughInterval)) {
                     this.lastFlushTimestamp = currentTimeMillis;
+                    // 即待写入的数据 < 指定页数，也执行刷盘操作
                     flushPhysicQueueLeastPages = 0;
                     printFlushProgress = (printTimes++ % 10) == 0;
                 }
@@ -1118,7 +1129,9 @@ public class CommitLog {
                     }
 
                     long begin = System.currentTimeMillis();
+                    // 执行刷盘
                     CommitLog.this.mappedFileQueue.flush(flushPhysicQueueLeastPages);
+                    // 更新CommitLog刷盘点
                     long storeTimestamp = CommitLog.this.mappedFileQueue.getStoreTimestamp();
                     if (storeTimestamp > 0) {
                         CommitLog.this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(storeTimestamp);
@@ -1183,6 +1196,7 @@ public class CommitLog {
         }
 
         public void wakeupCustomer(final PutMessageStatus putMessageStatus) {
+            // 调用complete方法即表示当前刷盘完成，且已被复制到了从节点
             this.flushOKFuture.complete(putMessageStatus);
         }
 
@@ -1212,6 +1226,7 @@ public class CommitLog {
             this.wakeup();
         }
 
+        // 避免产生🔒竞争，提供了读写两个容器，每执行完一次任务进行交换
         private void swapRequests() {
             lock.lock();
             try {
@@ -1228,15 +1243,16 @@ public class CommitLog {
                 for (GroupCommitRequest req : this.requestsRead) {
                     // There may be a message in the next file, so a maximum of
                     // two times the flush
+                    // 判断已刷盘指针是否 >= 提交的刷盘点
                     boolean flushOK = CommitLog.this.mappedFileQueue.getFlushedWhere() >= req.getNextOffset();
                     for (int i = 0; i < 2 && !flushOK; i++) {
                         CommitLog.this.mappedFileQueue.flush(0);
                         flushOK = CommitLog.this.mappedFileQueue.getFlushedWhere() >= req.getNextOffset();
                     }
-
+                    // 唤醒消息发送线程并通知刷盘结果，然后Broker端就会处理对应的结果
                     req.wakeupCustomer(flushOK ? PutMessageStatus.PUT_OK : PutMessageStatus.FLUSH_DISK_TIMEOUT);
                 }
-
+                // 更新刷盘点（文件最后一次写入时间）
                 long storeTimestamp = CommitLog.this.mappedFileQueue.getStoreTimestamp();
                 if (storeTimestamp > 0) {
                     CommitLog.this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(storeTimestamp);
@@ -1252,7 +1268,7 @@ public class CommitLog {
 
         public void run() {
             CommitLog.log.info(this.getServiceName() + " service started");
-
+            // 刷盘线程每隔10ms处理刷盘请求
             while (!this.isStopped()) {
                 try {
                     this.waitForRunning(10);
