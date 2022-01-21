@@ -76,6 +76,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      *
      * See <a href="http://rocketmq.apache.org/docs/core-concept/">here</a> for further discussion.
      */
+    // 消费者所属组
     private String consumerGroup;
 
     /**
@@ -90,6 +91,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      *
      * This field defaults to clustering.
      */
+    // 消息消费模式，分为集群模式、广播模式，默认为集群模式
     private MessageModel messageModel = MessageModel.CLUSTERING;
 
     /**
@@ -123,6 +125,11 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * </li>
      * </ul>
      */
+    // 第一次消费时指定消费策略，
+    // CONSUME_FROM_LAST_OFFSET有两种情况：1.磁盘消息未过期且未删除，则从最小偏移量开始消费；2.如果磁盘已过期并被删除，则从消息的最大偏移量开始消费
+    // CONSUME_FROM_FIRST_OFFSET：从消费队列当前最小偏移量开始消费
+    // CONSUME_FROM_TIMESTAMP：从消费者指定的时间戳开始消费
+    // 注意：如果从消息进度服务OffsetStore读取到MessageQueue中的偏移量不小于0，则使用读取到的偏移量拉去消息，只有在小于0时，上述策略才会生效
     private ConsumeFromWhere consumeFromWhere = ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET;
 
     /**
@@ -136,6 +143,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Queue allocation algorithm specifying how message queues are allocated to each consumer clients.
      */
+    // 集群模式下消息队列的负载策略
     private AllocateMessageQueueStrategy allocateMessageQueueStrategy;
 
     /**
@@ -146,21 +154,25 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Message listener
      */
+    // 消息业务监听器
     private MessageListener messageListener;
 
     /**
      * Offset Storage
      */
+    // 消息消费进度存储器
     private OffsetStore offsetStore;
 
     /**
      * Minimum consumer thread number
      */
+    // 消费者最小线程数
     private int consumeThreadMin = 20;
 
     /**
      * Max consumer thread number
      */
+    // 消费者最大线程数
     private int consumeThreadMax = 20;
 
     /**
@@ -171,12 +183,14 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Concurrently max span offset.it has no effect on sequential consumption
      */
+    // 并发消息消费时处理队列最大跨度：如果消息处理队列中偏移量最大的消息与偏移量最小的消息的跨度超过2000，则延迟50ms后再拉去
     private int consumeConcurrentlyMaxSpan = 2000;
 
     /**
      * Flow control threshold on queue level, each message queue will cache at most 1000 messages by default,
      * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
      */
+    // 每1000次流控后打印流控日志
     private int pullThresholdForQueue = 1000;
 
     /**
@@ -218,16 +232,19 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Batch consumption size
      */
+    // 消息并发消费时一次消费消息的条数
     private int consumeMessageBatchMaxSize = 1;
 
     /**
      * Batch pull size
      */
+    // 每次消息拉去的条数
     private int pullBatchSize = 32;
 
     /**
      * Whether update subscription relationship when every pull
      */
+    // 是否每次拉取消息都更新订阅信息
     private boolean postSubscriptionWhenPull = false;
 
     /**
@@ -236,22 +253,25 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     private boolean unitMode = false;
 
     /**
-     * Max re-consume times. 
+     * Max re-consume times.
      * In concurrently mode, -1 means 16;
      * In orderly mode, -1 means Integer.MAX_VALUE.
      *
      * If messages are re-consumed more than {@link #maxReconsumeTimes} before success.
      */
+    // 最大消费重试次数，超过该次数还未成功，则将该消息转入失败队列，等待删除
     private int maxReconsumeTimes = -1;
 
     /**
      * Suspending pulling time for cases requiring slow pulling like flow-control scenario.
      */
+    // 延迟将消息提交到消费者线程的等待时间，默认1s
     private long suspendCurrentQueueTimeMillis = 1000;
 
     /**
      * Maximum amount of time in minutes a message may block the consuming thread.
      */
+    // 消息消费超时时间，默认15分钟
     private long consumeTimeout = 15;
 
     /**
@@ -412,7 +432,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     public void createTopic(String key, String newTopic, int queueNum) throws MQClientException {
         createTopic(key, withNamespace(newTopic), queueNum, 0);
     }
-    
+
     @Override
     public void setUseTLS(boolean useTLS) {
         super.setUseTLS(useTLS);
@@ -420,7 +440,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
             ((AsyncTraceDispatcher) traceDispatcher).getTraceProducer().setUseTLS(useTLS);
         }
     }
-    
+
     /**
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      */

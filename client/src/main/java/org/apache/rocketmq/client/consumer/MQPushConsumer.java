@@ -41,8 +41,10 @@ public interface MQPushConsumer extends MQConsumer {
     @Deprecated
     void registerMessageListener(MessageListener messageListener);
 
+    // 注册并发消息监听器
     void registerMessageListener(final MessageListenerConcurrently messageListener);
 
+    // 注册顺序消息事件监听器
     void registerMessageListener(final MessageListenerOrderly messageListener);
 
     /**
@@ -52,6 +54,7 @@ public interface MQPushConsumer extends MQConsumer {
      * null or * expression,meaning subscribe
      * all
      */
+    // 基于主题订阅消息，参数为：主题；过滤表达式
     void subscribe(final String topic, final String subExpression) throws MQClientException;
 
     /**
@@ -63,6 +66,7 @@ public interface MQPushConsumer extends MQConsumer {
      * @param fullClassName full class name,must extend org.apache.rocketmq.common.filter. MessageFilter
      * @param filterClassSource class source code,used UTF-8 file encoding,must be responsible for your code safety
      */
+    // 基于主题订阅消息，消息过滤方式使用类方式，参数为：主题、过滤类全路径名、过滤类代码
     @Deprecated
     void subscribe(final String topic, final String fullClassName,
         final String filterClassSource) throws MQClientException;
@@ -91,6 +95,7 @@ public interface MQPushConsumer extends MQConsumer {
      *
      * @param topic message topic
      */
+    // 取消消息订阅
     void unsubscribe(final String topic);
 
     /**
