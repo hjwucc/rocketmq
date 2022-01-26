@@ -432,10 +432,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         }
 
         int sysFlag = PullSysFlag.buildSysFlag(
-            commitOffsetEnable, // commitOffset
-            true, // suspend
-            subExpression != null, // subscription
-            classFilter // class filter
+            commitOffsetEnable, // commitOffset，表示从内存中读取的消费进度 > 0,则设置该标记位
+            true, // suspend，表示消息拉取时，支持挂起
+            subExpression != null, // subscription，消息过滤机制为表达式，则设置该标记位
+            classFilter // class filter，消息过滤机制为类过滤模式
         );
         try {
             // 调用pullKernelImpl与Broker服务端交互
