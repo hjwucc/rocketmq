@@ -950,6 +950,7 @@ public class MQClientInstance {
         this.rebalanceService.wakeup();
     }
 
+    // 该方法每隔20s执行一次
     public void doRebalance() {
         for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();

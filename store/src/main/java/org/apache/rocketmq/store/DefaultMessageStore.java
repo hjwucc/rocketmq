@@ -1971,7 +1971,7 @@ public class DefaultMessageStore implements MessageStore {
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
-                // isDuplicationEnable指消息是否允许重复转发
+                // isDuplicationEnable指消息是否允许重复转发(是否允消息重复消费)
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
@@ -1992,7 +1992,9 @@ public class DefaultMessageStore implements MessageStore {
                                     // 开始转发消息：最终分别调用CommitLogDispatcherBuildConsumeQueue（构建消息消费队列）、
                                     // CommitLogDispatcherBuildIndex（构建索引文件）
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
-
+                                    // 如果Broker端是主节点且开启了长轮询模式，则会唤醒挂起的线程，尝试处理消费者端拉取消息
+                                    // 的请求（判断当前消费队列最大偏移量是否大于待拉取偏移量，如果大于则拉取请求），因此长
+                                    // 轮询模式准实时消息拉取
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                             && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()
                                             && DefaultMessageStore.this.messageArrivingListener != null) {
