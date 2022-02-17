@@ -48,20 +48,24 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 
 public class ScheduleMessageService extends ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    // 第一次调度时延迟的时间，默认1s
     private static final long FIRST_DELAY_TIME = 1000L;
+    // 每一个延时级别调度一次后，延迟该时间间隔后再放入调度池
     private static final long DELAY_FOR_A_WHILE = 100L;
+    // 消息发送异常后延迟该时间后再继续参与调度
     private static final long DELAY_FOR_A_PERIOD = 10000L;
-
+    // 延迟级别，如{1:1000,2:5000,3:3000,...}
     private final ConcurrentMap<Integer /* level */, Long/* delay timeMillis */> delayLevelTable =
         new ConcurrentHashMap<Integer, Long>(32);
-
+    // 延迟级别消息消费进度
     private final ConcurrentMap<Integer /* level */, Long/* offset */> offsetTable =
         new ConcurrentHashMap<Integer, Long>(32);
+    // 默认消息存储器
     private final DefaultMessageStore defaultMessageStore;
     private final AtomicBoolean started = new AtomicBoolean(false);
     private Timer timer;
     private MessageStore writeMessageStore;
+    // MessageStoreConfig#messageDelayLevel中最大消息延迟级别
     private int maxDelayLevel;
 
     public ScheduleMessageService(final DefaultMessageStore defaultMessageStore) {
@@ -110,6 +114,7 @@ public class ScheduleMessageService extends ConfigManager {
         return storeTimestamp + 1000;
     }
 
+    // 根据延迟级别创建对应的定时任务
     public void start() {
         if (started.compareAndSet(false, true)) {
             super.load();
@@ -126,7 +131,7 @@ public class ScheduleMessageService extends ConfigManager {
                     this.timer.schedule(new DeliverDelayedMessageTimerTask(level, offset), FIRST_DELAY_TIME);
                 }
             }
-
+            // 启动定时任务持久化延迟消息消费进度
             this.timer.scheduleAtFixedRate(new TimerTask() {
 
                 @Override
@@ -163,6 +168,7 @@ public class ScheduleMessageService extends ConfigManager {
         return this.encode(false);
     }
 
+    // 构造delayLevelTable数据结构，并加载延迟消息消费队列消费进度
     public boolean load() {
         boolean result = super.load();
         result = result && this.parseDelayLevel();
