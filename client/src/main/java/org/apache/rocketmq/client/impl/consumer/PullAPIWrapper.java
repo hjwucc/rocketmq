@@ -67,6 +67,7 @@ public class PullAPIWrapper {
         this.unitMode = unitMode;
     }
 
+    // 解析从Broker端拉取到的消息，并过滤
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
@@ -78,6 +79,7 @@ public class PullAPIWrapper {
 
             List<MessageExt> msgListFilterAgain = msgList;
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
+                // 如果消息过滤模式是TAG,且订阅TAG的集合不为空，则根据tag进行消息过滤
                 msgListFilterAgain = new ArrayList<MessageExt>(msgList.size());
                 for (MessageExt msg : msgList) {
                     if (msg.getTags() != null) {

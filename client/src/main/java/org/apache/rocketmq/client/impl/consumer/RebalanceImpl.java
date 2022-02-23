@@ -116,6 +116,7 @@ public abstract class RebalanceImpl {
         }
     }
 
+    // 按Broker组织数据格式，方便后续向Broker发送锁定消息队列请求
     private HashMap<String/* brokerName */, Set<MessageQueue>> buildProcessQueueTableByBrokerName() {
         HashMap<String, Set<MessageQueue>> result = new HashMap<String, Set<MessageQueue>>();
         for (MessageQueue mq : this.processQueueTable.keySet()) {
@@ -164,7 +165,9 @@ public abstract class RebalanceImpl {
         return false;
     }
 
+    // 向消费者对应的Broker端发送锁定消息队列请求，成功则锁定对应的消费队列
     public void lockAll() {
+        // 构建数据格式
         HashMap<String, Set<MessageQueue>> brokerMqs = this.buildProcessQueueTableByBrokerName();
 
         Iterator<Entry<String, Set<MessageQueue>>> it = brokerMqs.entrySet().iterator();
@@ -184,6 +187,7 @@ public abstract class RebalanceImpl {
                 requestBody.setMqSet(mqs);
 
                 try {
+                    // 向Broker端发送锁定消费队列请求
                     Set<MessageQueue> lockOKMQSet =
                         this.mQClientFactory.getMQClientAPIImpl().lockBatchMQ(findBrokerResult.getBrokerAddr(), requestBody, 1000);
 
@@ -193,11 +197,12 @@ public abstract class RebalanceImpl {
                             if (!processQueue.isLocked()) {
                                 log.info("the message queue locked OK, Group: {} {}", this.consumerGroup, mq);
                             }
-
+                            // 锁定对应的消费队列，并更新锁定时间
                             processQueue.setLocked(true);
                             processQueue.setLastLockTimestamp(System.currentTimeMillis());
                         }
                     }
+                    // 如果当前消费者无法锁定该消费队列，则将对应的处理队列锁的状态设置为false，暂停该消费队列的消息拉取与消费
                     for (MessageQueue mq : mqs) {
                         if (!lockOKMQSet.contains(mq)) {
                             ProcessQueue processQueue = this.processQueueTable.get(mq);
@@ -377,6 +382,7 @@ public abstract class RebalanceImpl {
         for (MessageQueue mq : mqSet) {
             if (!this.processQueueTable.containsKey(mq)) {
                 // 说明mq是本次新增加的消息队列
+                // 集群模式下isOrder为false
                 if (isOrder && !this.lock(mq)) {
                     log.warn("doRebalance, {}, add a new mq failed, {}, because lock failed", consumerGroup, mq);
                     continue;

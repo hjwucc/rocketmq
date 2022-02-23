@@ -260,7 +260,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         }
 
         if (!this.consumeOrderly) {
-            // 如果客户端要顺序消费，且当前拉取请求对应的处理队列中消息最大偏移量与最小偏移量的间距 > 2000
+            // 如果客户端不是顺序消费，且当前拉取请求对应的处理队列中消息最大偏移量与最小偏移量的间距 > 2000
             // 则放弃本次拉取任务，并在50ms后再加入到拉取任务队列中
             if (processQueue.getMaxSpan() > this.defaultMQPushConsumer.getConsumeConcurrentlyMaxSpan()) {
                 this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
@@ -273,7 +273,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 return;
             }
         } else {
-            // 如果客户端不是顺序消费
+            // 如果客户端是顺序消费
             if (processQueue.isLocked()) {
                 // 当前处理队列被其它线程锁住，则可以先更新当前请求的消息偏移量
                 if (!pullRequest.isPreviouslyLocked()) {
@@ -297,6 +297,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     pullRequest.setNextOffset(offset);
                 }
             } else {
+                // 如果消息队列未被锁定，则延迟3s后再将PullRequest对象放入到拉取任务队列
                 this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
                 log.info("pull message later because not locked in broker, {}", pullRequest);
                 return;
