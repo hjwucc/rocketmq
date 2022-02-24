@@ -32,6 +32,7 @@ public class RebalanceLockManager {
     private final static long REBALANCE_LOCK_MAX_LIVE_TIME = Long.parseLong(System.getProperty(
         "rocketmq.broker.rebalance.lockMaxLiveTime", "60000"));
     private final Lock lock = new ReentrantLock();
+    // 锁容器（以消息消费组作为Key,Value中消息消费队列和锁对象一一对应）
     private final ConcurrentMap<String/* group */, ConcurrentHashMap<MessageQueue, LockEntry>> mqLockTable =
         new ConcurrentHashMap<String, ConcurrentHashMap<MessageQueue, LockEntry>>(1024);
 
@@ -114,6 +115,9 @@ public class RebalanceLockManager {
         return false;
     }
 
+    // 申请对mqs消息消费队列集合加锁
+    // 其中参数：group:消息消费组名；mqs:待加锁的消息消费队列集合；clientId:消息消费者实例ID(cid)
+    // 返回成功加锁的消息队列集合
     public Set<MessageQueue> tryLockBatch(final String group, final Set<MessageQueue> mqs,
         final String clientId) {
         Set<MessageQueue> lockedMqs = new HashSet<MessageQueue>(mqs.size());
@@ -189,6 +193,8 @@ public class RebalanceLockManager {
         return lockedMqs;
     }
 
+    // 申请对mqs消息消费队列集合解锁
+    // 其中参数 mqs:待解锁的消息队列集合；clientId:持有锁的消息消费者
     public void unlockBatch(final String group, final Set<MessageQueue> mqs, final String clientId) {
         try {
             this.lock.lockInterruptibly();

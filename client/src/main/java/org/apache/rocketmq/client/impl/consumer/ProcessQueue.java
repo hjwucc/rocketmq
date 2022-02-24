@@ -272,7 +272,7 @@ public class ProcessQueue {
         }
     }
 
-    // 将consumingMsgOrderlyTreeMap中的消息清除，表示成功处理该批消息
+    // 将consumingMsgOrderlyTreeMap中的消息清除，表示成功处理该批消息，返回待保存的消息消费进度
     public long commit() {
         try {
             this.treeMapLock.writeLock().lockInterruptibly();
