@@ -22,31 +22,35 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.broker.out.BrokerOuterAPI;
 import org.apache.rocketmq.client.exception.MQBrokerException;
 import org.apache.rocketmq.common.BrokerConfig;
-import org.apache.rocketmq.common.EpochEntry;
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.Pair;
 import org.apache.rocketmq.common.ThreadFactoryImpl;
 import org.apache.rocketmq.common.constant.LoggerName;
-import org.apache.rocketmq.common.protocol.body.SyncStateSet;
-import org.apache.rocketmq.common.protocol.header.namesrv.controller.GetMetaDataResponseHeader;
-import org.apache.rocketmq.common.protocol.header.namesrv.controller.GetReplicaInfoResponseHeader;
-import org.apache.rocketmq.common.protocol.header.namesrv.controller.RegisterBrokerToControllerResponseHeader;
-import org.apache.rocketmq.logging.InternalLogger;
-import org.apache.rocketmq.logging.InternalLoggerFactory;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+import org.apache.rocketmq.remoting.protocol.EpochEntry;
+import org.apache.rocketmq.remoting.protocol.body.SyncStateSet;
+import org.apache.rocketmq.remoting.protocol.header.controller.GetMetaDataResponseHeader;
+import org.apache.rocketmq.remoting.protocol.header.controller.GetReplicaInfoResponseHeader;
+import org.apache.rocketmq.remoting.protocol.header.controller.RegisterBrokerToControllerResponseHeader;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.ha.autoswitch.AutoSwitchHAService;
 
-import static org.apache.rocketmq.common.protocol.ResponseCode.CONTROLLER_BROKER_METADATA_NOT_EXIST;
+import static org.apache.rocketmq.remoting.protocol.ResponseCode.CONTROLLER_BROKER_METADATA_NOT_EXIST;
 
 /**
  * The manager of broker replicas, including: 0.regularly syncing controller metadata, change controller leader address,
@@ -55,18 +59,20 @@ import static org.apache.rocketmq.common.protocol.ResponseCode.CONTROLLER_BROKER
  * syncStateSet, only master will start this timed task.
  */
 public class ReplicasManager {
-    private static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
 
     private static final int RETRY_INTERVAL_SECOND = 5;
 
     private final ScheduledExecutorService scheduledService;
     private final ExecutorService executorService;
+    private final ExecutorService scanExecutor;
     private final BrokerController brokerController;
     private final AutoSwitchHAService haService;
     private final BrokerConfig brokerConfig;
     private final String localAddress;
     private final BrokerOuterAPI brokerOuterAPI;
-    private final List<String> controllerAddresses;
+    private List<String> controllerAddresses;
+    private final ConcurrentMap<String, Boolean> availableControllerAddresses;
 
     private volatile String controllerLeaderAddress = "";
     private volatile State state = State.INITIAL;
@@ -85,12 +91,11 @@ public class ReplicasManager {
         this.brokerOuterAPI = brokerController.getBrokerOuterAPI();
         this.scheduledService = Executors.newScheduledThreadPool(3, new ThreadFactoryImpl("ReplicasManager_ScheduledService_", brokerController.getBrokerIdentity()));
         this.executorService = Executors.newFixedThreadPool(3, new ThreadFactoryImpl("ReplicasManager_ExecutorService_", brokerController.getBrokerIdentity()));
+        this.scanExecutor = new ThreadPoolExecutor(4, 10, 60, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(32), new ThreadFactoryImpl("ReplicasManager_scan_thread_", brokerController.getBrokerIdentity()));
         this.haService = (AutoSwitchHAService) brokerController.getMessageStore().getHaService();
         this.brokerConfig = brokerController.getBrokerConfig();
-        final String controllerPaths = this.brokerConfig.getControllerAddr();
-        final String[] controllers = controllerPaths.split(";");
-        assert controllers.length > 0;
-        this.controllerAddresses = new ArrayList<>(Arrays.asList(controllers));
+        this.availableControllerAddresses = new ConcurrentHashMap<>();
         this.syncStateSet = new HashSet<>();
         this.localAddress = brokerController.getBrokerAddr();
         this.haService.setLocalAddress(this.localAddress);
@@ -108,6 +113,10 @@ public class ReplicasManager {
     }
 
     public void start() {
+        updateControllerAddr();
+        scanAvailableControllerAddresses();
+        this.scheduledService.scheduleAtFixedRate(this::updateControllerAddr, 2 * 60 * 1000, 2 * 60 * 1000, TimeUnit.MILLISECONDS);
+        this.scheduledService.scheduleAtFixedRate(this::scanAvailableControllerAddresses, 3 * 1000, 3 * 1000, TimeUnit.MILLISECONDS);
         if (!startBasicService()) {
             LOGGER.error("Failed to start replicasManager");
             this.executorService.submit(() -> {
@@ -291,8 +300,8 @@ public class ReplicasManager {
         // Register this broker to controller, get brokerId and masterAddress.
         try {
             final RegisterBrokerToControllerResponseHeader registerResponse = this.brokerOuterAPI.registerBrokerToController(this.controllerLeaderAddress,
-                this.brokerConfig.getBrokerClusterName(), this.brokerConfig.getBrokerName(), this.localAddress,
-                this.haService.getLastEpoch(), this.brokerController.getMessageStore().getMaxPhyOffset());
+                this.brokerConfig.getBrokerClusterName(), this.brokerConfig.getBrokerName(), this.localAddress, this.brokerConfig.getControllerHeartBeatTimeoutMills(),
+                this.haService.getLastEpoch(), this.brokerController.getMessageStore().getMaxPhyOffset(), this.brokerConfig.getBrokerElectionPriority());
             final String newMasterAddress = registerResponse.getMasterAddress();
             if (StringUtils.isNoneEmpty(newMasterAddress)) {
                 if (StringUtils.equals(newMasterAddress, this.localAddress)) {
@@ -393,7 +402,7 @@ public class ReplicasManager {
      * Update controller leader address by rpc.
      */
     private boolean updateControllerMetadata() {
-        for (String address : this.controllerAddresses) {
+        for (String address : this.availableControllerAddresses.keySet()) {
             try {
                 final GetMetaDataResponseHeader responseHeader = this.brokerOuterAPI.getControllerMetaData(address);
                 if (responseHeader != null && StringUtils.isNoneEmpty(responseHeader.getControllerLeaderAddress())) {
@@ -448,6 +457,47 @@ public class ReplicasManager {
         }
     }
 
+    private void scanAvailableControllerAddresses() {
+        if (controllerAddresses == null) {
+            LOGGER.warn("scanAvailableControllerAddresses addresses of controller is null!");
+            return;
+        }
+
+        for (String address : availableControllerAddresses.keySet()) {
+            if (!controllerAddresses.contains(address)) {
+                LOGGER.warn("scanAvailableControllerAddresses remove invalid address {}", address);
+                availableControllerAddresses.remove(address);
+            }
+        }
+
+        for (String address : controllerAddresses) {
+            scanExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    if (brokerOuterAPI.checkAddressReachable(address)) {
+                        availableControllerAddresses.putIfAbsent(address, true);
+                    } else {
+                        Boolean value = availableControllerAddresses.remove(address);
+                        if (value != null) {
+                            LOGGER.warn("scanAvailableControllerAddresses remove unconnected address {}", address);
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    private void updateControllerAddr() {
+        if (brokerConfig.isFetchControllerAddrByDnsLookup()) {
+            this.controllerAddresses = brokerOuterAPI.dnsLookupAddressByDomain(this.brokerConfig.getControllerAddr());
+        } else {
+            final String controllerPaths = this.brokerConfig.getControllerAddr();
+            final String[] controllers = controllerPaths.split(";");
+            assert controllers.length > 0;
+            this.controllerAddresses = Arrays.asList(controllers);
+        }
+    }
+
     public int getLastEpoch() {
         return this.haService.getLastEpoch();
     }
@@ -482,5 +532,9 @@ public class ReplicasManager {
 
     public List<EpochEntry> getEpochEntries() {
         return this.haService.getEpochEntries();
+    }
+
+    public List<String> getAvailableControllerAddresses() {
+        return new ArrayList<>(availableControllerAddresses.keySet());
     }
 }
